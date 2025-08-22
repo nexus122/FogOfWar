@@ -1,43 +1,36 @@
 document.addEventListener("DOMContentLoaded", () => {
-    // -------- Mapa --------
-    const map = L.map("map").setView([40.4168, -3.7038], 13); // Madrid
+    console.log("DOM cargado");
+
+    // ----------------- Mapa -----------------
+    const map = L.map("map").setView([40.4168, -3.7038], 13);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: "&copy; OpenStreetMap contributors"
     }).addTo(map);
+    console.log("Mapa inicializado");
 
-    // -------- Canvas de niebla --------
-    const fogCanvas = document.getElementById("fog");
-    const fogCtx = fogCanvas.getContext("2d");
+    // ----------------- Canvas -----------------
+    const canvas = document.getElementById("fog");
+    const ctx = canvas.getContext("2d");
+    let fogAlpha = 0.85;
+    let holes = [];
 
     function resizeCanvas() {
         const size = map.getSize();
-        fogCanvas.width = size.x;
-        fogCanvas.height = size.y;
-        drawFog();
+        canvas.width = size.x;
+        canvas.height = size.y;
+        console.log("Canvas redimensionado:", canvas.width, canvas.height);
+        redrawFogAndHoles();
     }
-
     window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
 
-    // Dibujar niebla simple
-    function drawFog() {
-        fogCtx.clearRect(0, 0, fogCanvas.width, fogCanvas.height);
-        fogCtx.fillStyle = "rgba(0,0,0,0.7)";
-        fogCtx.fillRect(0, 0, fogCanvas.width, fogCanvas.height);
-    }
-
-    // -------- Agujeros --------
-    let holes = JSON.parse(localStorage.getItem("fogHoles") || "[]");
-
-    function saveHoles() {
-        localStorage.setItem("fogHoles", JSON.stringify(holes));
-    }
-
+    // ----------------- Conversiones -----------------
     function mapToScreen(lat, lng) {
         const p = map.latLngToContainerPoint([lat, lng]);
         return { x: p.x, y: p.y };
     }
 
-    function calculateRadius(lat, lng, meters = 50) {
+    function calculateRadius(lat, lng, meters = 100) {
         const point1 = L.latLng(lat, lng);
         const point2 = L.latLng(lat, lng + meters / 111320);
         const px1 = map.latLngToContainerPoint(point1);
@@ -45,63 +38,78 @@ document.addEventListener("DOMContentLoaded", () => {
         return Math.abs(px2.x - px1.x);
     }
 
+    // ----------------- Dibujo -----------------
+    function drawFog() {
+        ctx.fillStyle = `rgba(0,0,0,${fogAlpha})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        console.log("Dibujando niebla...");
+    }
+
     function drawHoles() {
-        fogCtx.save();
-        fogCtx.globalCompositeOperation = "destination-out";
+        console.log("Dibujando agujeros:", holes.length);
         holes.forEach(h => {
             const { x, y } = mapToScreen(h.lat, h.lng);
-            const radius = calculateRadius(h.lat, h.lng, 50);
-            const gradient = fogCtx.createRadialGradient(x, y, 0, x, y, radius);
+            const radius = calculateRadius(h.lat, h.lng);
+            const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
             gradient.addColorStop(0, "rgba(0,0,0,1)");
             gradient.addColorStop(0.5, "rgba(0,0,0,0.5)");
             gradient.addColorStop(1, "rgba(0,0,0,0)");
-            fogCtx.fillStyle = gradient;
-            fogCtx.beginPath();
-            fogCtx.arc(x, y, radius, 0, Math.PI * 2);
-            fogCtx.fill();
+            ctx.globalCompositeOperation = "destination-out";
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalCompositeOperation = "source-over";
         });
-        fogCtx.restore();
     }
 
-    function createHole(lat, lng) {
-        holes.push({ lat, lng });
-        saveHoles();
+    function redrawFogAndHoles() {
+        console.log("Redibujando niebla y agujeros");
         drawFog();
         drawHoles();
     }
 
-    // Redibujar con suavidad usando requestAnimationFrame
-    let redrawPending = false;
-    function requestRedraw() {
-        if (!redrawPending) {
-            redrawPending = true;
-            requestAnimationFrame(() => {
-                drawFog();
-                drawHoles();
-                redrawPending = false;
-            });
-        }
+    // ----------------- LocalStorage -----------------
+    function saveHoles() {
+        localStorage.setItem("fogHoles", JSON.stringify(holes));
+        console.log("Holes guardados:", holes.length);
     }
 
-    map.on("move", requestRedraw);
-    map.on("zoom", requestRedraw);
+    function loadHoles() {
+        const saved = localStorage.getItem("fogHoles");
+        if (saved) {
+            holes = JSON.parse(saved);
+            console.log("Holes cargados desde localStorage:", holes.length);
+        }
+    }
+    loadHoles();
 
+    function createHole(lat, lng) {
+        holes.push({ lat, lng });
+        console.log("Creando agujero en:", lat, lng);
+        saveHoles();
+        redrawFogAndHoles();
+    }
+
+    // ----------------- Eventos -----------------
     map.on("click", e => createHole(e.latlng.lat, e.latlng.lng));
+    map.on("move", redrawFogAndHoles);
+    map.on("zoom", redrawFogAndHoles);
 
-    // -------- Geolocalización --------
+    // ----------------- Geolocalización -----------------
     if ("geolocation" in navigator) {
         navigator.geolocation.watchPosition(
             pos => {
                 const { latitude, longitude } = pos.coords;
+                console.log("Geolocalización:", latitude, longitude);
                 createHole(latitude, longitude);
                 map.setView([latitude, longitude], map.getZoom());
             },
-            err => console.error(err),
+            err => console.error("Error geolocalización:", err),
             { enableHighAccuracy: true }
         );
     }
 
-    resizeCanvas();
-    drawFog();
-    drawHoles();
+    // Primera carga
+    redrawFogAndHoles();
 });
