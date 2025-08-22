@@ -92,7 +92,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ----------------- Eventos -----------------
-    map.on("click", e => createHole(e.latlng.lat, e.latlng.lng));
+    //map.on("click", e => createHole(e.latlng.lat, e.latlng.lng));
     map.on("move", redrawFogAndHoles);
     map.on("zoom", redrawFogAndHoles);
 
